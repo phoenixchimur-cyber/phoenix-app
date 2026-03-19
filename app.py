@@ -1,7 +1,4 @@
-# PHOENIX FULL PRO SYSTEM (PHASE 3)
-# Version 6.0 (QR + Login + Rewards)
-
-from flask import Flask, request, render_template_string, redirect, session
+from flask import Flask, request, redirect, session, render_template_string
 import sqlite3
 import random, string
 import qrcode
@@ -36,7 +33,11 @@ def gen_code():
 # ================= HOME =================
 @app.route('/')
 def home():
-    return '<h2>PHOENIX SYSTEM LIVE</h2><a href="/login">Student Login</a>'
+    return '''
+    <h2>🔥 PHOENIX COMPUTER EDUCATION</h2>
+    <a href="/join">👉 New Admission</a><br><br>
+    <a href="/login">👉 Student Login</a>
+    '''
 
 # ================= JOIN =================
 @app.route('/join')
@@ -45,16 +46,19 @@ def join():
     return render_template_string('''
     <h2>Admission Form</h2>
     <form method="post" action="/submit">
-        Name:<input name="name"><br>
-        Mobile:<input name="mobile"><br>
+        Name:<input name="name"><br><br>
+        Mobile:<input name="mobile"><br><br>
+
         Course:
         <select name="course">
             <option>MS-CIT</option>
             <option>KLIC</option>
             <option>CCTP</option>
-        </select><br>
-        Referral:<input name="ref" value="{{ref}}"><br>
-        <button>Submit</button>
+        </select><br><br>
+
+        Referral Code:<input name="ref" value="{{ref}}"><br><br>
+
+        <button type="submit">Submit</button>
     </form>
     ''', ref=ref)
 
@@ -74,27 +78,32 @@ def submit():
     c.execute("INSERT INTO students VALUES (NULL,?,?,?,?,?,0)",
               (name, mobile, course, code, ref))
 
-    # Points
+    # Points system
     if ref:
         c.execute("UPDATE students SET points = points + 50 WHERE referral_code=?", (ref,))
 
     conn.commit()
     conn.close()
 
-    # Generate QR
-    link = f"http://127.0.0.1:5000/join?ref={code}"
-    img = qrcode.make(link)
-    path = f"static/{code}.png"
+    # QR code generate
+    link = f"https://phoenix-app-e92a.onrender.com/join?ref={code}"
     os.makedirs("static", exist_ok=True)
-    img.save(path)
+    img = qrcode.make(link)
+    img.save(f"static/{code}.png")
 
-    return f"Admission Done!<br>Your Code: {code}<br><img src='/{path}'>"
+    return f"""
+    <h3>✅ Admission Successful</h3>
+    <p>Your Code: {code}</p>
+    <img src="/static/{code}.png"><br>
+    <a href="/login">Login Now</a>
+    """
 
 # ================= LOGIN =================
-@app.route('/login', methods=['GET','POST'])
+@app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         mobile = request.form['mobile']
+
         conn = sqlite3.connect(DB)
         c = conn.cursor()
         c.execute("SELECT referral_code FROM students WHERE mobile=?", (mobile,))
@@ -105,13 +114,13 @@ def login():
             session['code'] = row[0]
             return redirect('/dashboard')
         else:
-            return "Not Found"
+            return "❌ Not Found"
 
     return '''
     <h2>Login</h2>
-    <form method='post'>
-    Mobile:<input name='mobile'>
-    <button>Login</button>
+    <form method="post">
+        Mobile:<input name="mobile"><br><br>
+        <button>Login</button>
     </form>
     '''
 
@@ -128,20 +137,21 @@ def dashboard():
     row = c.fetchone()
     conn.close()
 
-    link = f"http://127.0.0.1:5000/join?ref={code}"
+    link = f"https://phoenix-app-e92a.onrender.com/join?ref={code}"
 
     return f"""
     <h2>Welcome {row[0]}</h2>
     <p>Points: {row[1]}</p>
     <p>Your Link: {link}</p>
-    <img src='/static/{code}.png'><br>
-    <a href='/redeem'>Redeem Reward</a>
+    <img src="/static/{code}.png"><br><br>
+    <a href="/redeem">Redeem Reward</a>
     """
 
 # ================= REDEEM =================
 @app.route('/redeem')
 def redeem():
     code = session.get('code')
+
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
@@ -149,14 +159,14 @@ def redeem():
     pts = c.fetchone()[0]
 
     if pts >= 100:
-        reward = pts // 100 * 100
+        reward = (pts // 100) * 100
         c.execute("UPDATE students SET points = points - ? WHERE referral_code=?", (reward, code))
         conn.commit()
         conn.close()
-        return f"Reward Redeemed: ₹{reward}"
+        return f"🎉 Reward Redeemed: ₹{reward}"
     else:
         conn.close()
-        return "Not enough points"
+        return "❌ Not enough points"
 
 # ================= RUN =================
 if __name__ == '__main__':
