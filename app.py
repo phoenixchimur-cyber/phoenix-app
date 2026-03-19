@@ -3,6 +3,7 @@ import sqlite3
 import random, string
 import qrcode
 import os
+from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = "phoenix_secret"
@@ -12,6 +13,7 @@ DB = "phoenix_web.db"
 def init_db():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
+
     c.execute('''CREATE TABLE IF NOT EXISTS students (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT,
@@ -21,6 +23,13 @@ def init_db():
         referred_by TEXT,
         points INTEGER DEFAULT 0
     )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS logins (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mobile TEXT,
+        time TEXT
+    )''')
+
     conn.commit()
     conn.close()
 
@@ -30,13 +39,34 @@ init_db()
 def gen_code():
     return "PHX" + ''.join(random.choices(string.digits, k=4))
 
+BASE_URL = "https://phoenix-app-e92a.onrender.com"
+
 # ================= HOME =================
 @app.route('/')
 def home():
     return '''
-    <h2>🔥 PHOENIX COMPUTER EDUCATION</h2>
-    <a href="/join">👉 New Admission</a><br><br>
-    <a href="/login">👉 Student Login</a>
+    <div style="text-align:center;font-family:Arial;">
+        <h1 style="color:#ff6600;">🔥 PHOENIX COMPUTER EDUCATION</h1>
+        <p>Smart Admission & Earn System</p>
+
+        <a href="/join">
+            <button style="padding:10px 20px;margin:10px;background:#28a745;color:white;border:none;border-radius:5px;">
+                🎓 New Admission
+            </button>
+        </a><br>
+
+        <a href="/login">
+            <button style="padding:10px 20px;margin:10px;background:#007bff;color:white;border:none;border-radius:5px;">
+                📱 Student Login
+            </button>
+        </a><br>
+
+        <a href="/admin-login">
+            <button style="padding:10px 20px;margin:10px;background:#333;color:white;border:none;border-radius:5px;">
+                🔐 Admin Login
+            </button>
+        </a>
+    </div>
     '''
 
 # ================= JOIN =================
@@ -44,22 +74,26 @@ def home():
 def join():
     ref = request.args.get('ref', '')
     return render_template_string('''
-    <h2>Admission Form</h2>
-    <form method="post" action="/submit">
-        Name:<input name="name"><br><br>
-        Mobile:<input name="mobile"><br><br>
+    <div style="max-width:400px;margin:auto;font-family:Arial;">
+        <h2 style="text-align:center;color:#ff6600;">Admission Form</h2>
 
-        Course:
-        <select name="course">
-            <option>MS-CIT</option>
-            <option>KLIC</option>
-            <option>CCTP</option>
-        </select><br><br>
+        <form method="post" action="/submit">
+            <input name="name" placeholder="Full Name" style="width:100%;padding:10px;margin:5px;"><br>
+            <input name="mobile" placeholder="Mobile Number" style="width:100%;padding:10px;margin:5px;"><br>
 
-        Referral Code:<input name="ref" value="{{ref}}"><br><br>
+            <select name="course" style="width:100%;padding:10px;margin:5px;">
+                <option>MS-CIT</option>
+                <option>KLIC</option>
+                <option>CCTP</option>
+            </select><br>
 
-        <button type="submit">Submit</button>
-    </form>
+            <input name="ref" value="{{ref}}" placeholder="Referral Code" style="width:100%;padding:10px;margin:5px;"><br>
+
+            <button style="width:100%;padding:10px;background:#ff6600;color:white;border:none;border-radius:5px;">
+                🚀 Submit Admission
+            </button>
+        </form>
+    </div>
     ''', ref=ref)
 
 # ================= SUBMIT =================
@@ -78,50 +112,67 @@ def submit():
     c.execute("INSERT INTO students VALUES (NULL,?,?,?,?,?,0)",
               (name, mobile, course, code, ref))
 
-    # Points system
     if ref:
         c.execute("UPDATE students SET points = points + 50 WHERE referral_code=?", (ref,))
 
     conn.commit()
     conn.close()
 
-    # QR code generate
-    link = f"https://phoenix-app-e92a.onrender.com/join?ref={code}"
+    link = f"{BASE_URL}/join?ref={code}"
     os.makedirs("static", exist_ok=True)
     img = qrcode.make(link)
     img.save(f"static/{code}.png")
 
     return f"""
-    <h3>✅ Admission Successful</h3>
-    <p>Your Code: {code}</p>
-    <img src="/static/{code}.png"><br>
-    <a href="/login">Login Now</a>
+    <div style="text-align:center;font-family:Arial;">
+        <h3 style="color:green;">✅ Admission Successful</h3>
+        <p>Your Code: <b>{code}</b></p>
+        <img src="/static/{code}.png"><br><br>
+        <a href="/login">
+            <button style="padding:10px 20px;background:#007bff;color:white;border:none;border-radius:5px;">
+                Login Now
+            </button>
+        </a>
+    </div>
     """
 
 # ================= LOGIN =================
-@app.route('/login', methods=['GET', 'POST'])
+@app.route('/login', methods=['GET','POST'])
 def login():
     if request.method == 'POST':
         mobile = request.form['mobile']
 
         conn = sqlite3.connect(DB)
         c = conn.cursor()
+
         c.execute("SELECT referral_code FROM students WHERE mobile=?", (mobile,))
         row = c.fetchone()
-        conn.close()
 
         if row:
             session['code'] = row[0]
+
+            c.execute("INSERT INTO logins VALUES (NULL,?,?)",
+                      (mobile, datetime.now().strftime("%Y-%m-%d %H:%M")))
+
+            conn.commit()
+            conn.close()
+
             return redirect('/dashboard')
         else:
+            conn.close()
             return "❌ Not Found"
 
     return '''
-    <h2>Login</h2>
-    <form method="post">
-        Mobile:<input name="mobile"><br><br>
-        <button>Login</button>
-    </form>
+    <div style="max-width:400px;margin:auto;text-align:center;font-family:Arial;">
+        <h2 style="color:#ff6600;">Student Login</h2>
+        <form method="post">
+            <input name="mobile" placeholder="Enter Mobile Number"
+            style="width:100%;padding:10px;margin:10px;"><br>
+            <button style="padding:10px 20px;background:#007bff;color:white;border:none;border-radius:5px;">
+                Login
+            </button>
+        </form>
+    </div>
     '''
 
 # ================= DASHBOARD =================
@@ -137,14 +188,24 @@ def dashboard():
     row = c.fetchone()
     conn.close()
 
-    link = f"https://phoenix-app-e92a.onrender.com/join?ref={code}"
+    link = f"{BASE_URL}/join?ref={code}"
 
     return f"""
-    <h2>Welcome {row[0]}</h2>
-    <p>Points: {row[1]}</p>
-    <p>Your Link: {link}</p>
-    <img src="/static/{code}.png"><br><br>
-    <a href="/redeem">Redeem Reward</a>
+    <div style="text-align:center;font-family:Arial;">
+        <h2 style="color:#ff6600;">Welcome {row[0]}</h2>
+        <h3>⭐ Points: {row[1]}</h3>
+
+        <p>Your Referral Link:</p>
+        <input value="{link}" style="width:80%;padding:8px;" readonly><br><br>
+
+        <img src="/static/{code}.png"><br><br>
+
+        <a href="/redeem">
+            <button style="padding:10px 20px;background:#28a745;color:white;border:none;border-radius:5px;">
+                🎁 Redeem Reward
+            </button>
+        </a>
+    </div>
     """
 
 # ================= REDEEM =================
@@ -163,39 +224,75 @@ def redeem():
         c.execute("UPDATE students SET points = points - ? WHERE referral_code=?", (reward, code))
         conn.commit()
         conn.close()
-        return f"🎉 Reward Redeemed: ₹{reward}"
+        return f"<h3 style='color:green;'>🎉 Reward Redeemed: ₹{reward}</h3>"
     else:
         conn.close()
-        return "❌ Not enough points"
+        return "<h3 style='color:red;'>❌ Not enough points</h3>"
 
-# ================= RUN =================
-# ================= REDEEM =================
-@app.route('/redeem')
-def redeem():
-    ...
+# ================= ADMIN =================
+ADMIN_USER = "admin"
+ADMIN_PASS = "phoenix123"
 
-# 👇👇👇 इथे paste करा 👇👇👇
+@app.route('/admin-login', methods=['GET','POST'])
+def admin_login():
+    if request.method == 'POST':
+        if request.form['user'] == ADMIN_USER and request.form['pass'] == ADMIN_PASS:
+            session['admin'] = True
+            return redirect('/admin')
+        else:
+            return "❌ Wrong Login"
+
+    return '''
+    <h2>Admin Login</h2>
+    <form method="post">
+    Username:<input name="user"><br><br>
+    Password:<input name="pass"><br><br>
+    <button>Login</button>
+    </form>
+    '''
 
 @app.route('/admin')
 def admin():
+    if not session.get('admin'):
+        return redirect('/admin-login')
+
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
-    c.execute("SELECT name, mobile, course, referral_code, points FROM students")
+    c.execute("SELECT COUNT(*) FROM students")
+    total = c.fetchone()[0]
+
+    c.execute("SELECT SUM(points) FROM students")
+    points = c.fetchone()[0] or 0
+
+    c.execute("SELECT name, points FROM students ORDER BY points DESC LIMIT 5")
+    top = c.fetchall()
+
+    c.execute("SELECT * FROM students")
     data = c.fetchall()
 
     conn.close()
 
-    html = "<h2>All Students / Logins</h2><table border=1>"
-    html += "<tr><th>Name</th><th>Mobile</th><th>Course</th><th>Code</th><th>Points</th></tr>"
+    html = f"""
+    <h1 style="color:#ff6600;">🔥 ADMIN PANEL</h1>
+    <h3>Total Students: {total}</h3>
+    <h3>Total Points: {points}</h3>
 
-    for row in data:
-        html += f"<tr><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td><td>{row[3]}</td><td>{row[4]}</td></tr>"
+    <h2>Top Referrers</h2>
+    """
+
+    for t in top:
+        html += f"<p>{t[0]} - {t[1]}</p>"
+
+    html += "<h2>All Students</h2><table border=1>"
+
+    for d in data:
+        html += f"<tr><td>{d[1]}</td><td>{d[2]}</td><td>{d[3]}</td><td>{d[4]}</td><td>{d[6]}</td></tr>"
 
     html += "</table>"
+
     return html
 
 # ================= RUN =================
-
 if __name__ == '__main__':
     app.run(debug=True)
