@@ -169,5 +169,33 @@ def redeem():
         return "❌ Not enough points"
 
 # ================= RUN =================
+# ================= REDEEM =================
+@app.route('/redeem')
+def redeem():
+    ...
+
+# 👇👇👇 इथे paste करा 👇👇👇
+
+@app.route('/admin')
+def admin():
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("SELECT name, mobile, course, referral_code, points FROM students")
+    data = c.fetchall()
+
+    conn.close()
+
+    html = "<h2>All Students / Logins</h2><table border=1>"
+    html += "<tr><th>Name</th><th>Mobile</th><th>Course</th><th>Code</th><th>Points</th></tr>"
+
+    for row in data:
+        html += f"<tr><td>{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td><td>{row[3]}</td><td>{row[4]}</td></tr>"
+
+    html += "</table>"
+    return html
+
+# ================= RUN =================
+
 if __name__ == '__main__':
     app.run(debug=True)
