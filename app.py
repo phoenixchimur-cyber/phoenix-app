@@ -1,6 +1,5 @@
 from flask import Flask, request, redirect, session
 import sqlite3, random, string, qrcode, os
-from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = "phoenix_secret"
@@ -22,12 +21,6 @@ def init_db():
         points INTEGER DEFAULT 0
     )''')
 
-    c.execute('''CREATE TABLE IF NOT EXISTS alerts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        message TEXT,
-        time TEXT
-    )''')
-
     conn.commit()
     conn.close()
 
@@ -36,6 +29,7 @@ init_db()
 # ================= UI =================
 def ui(content):
     return f"""
+    <!DOCTYPE html>
     <html>
     <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -43,11 +37,15 @@ def ui(content):
     body {{font-family:Arial;background:#f2f4f7;margin:0}}
     .box {{background:white;margin:15px;padding:20px;border-radius:12px;text-align:center}}
     input,select {{width:90%;padding:12px;margin:8px;border-radius:8px}}
-    button {{width:90%;padding:12px;margin:10px;border:none;border-radius:8px;color:white}}
-    .green{{background:#28a745}} .blue{{background:#007bff}} .orange{{background:#ff6600}}
+    button {{width:90%;padding:12px;margin:10px;border:none;border-radius:8px;color:white;font-size:16px}}
+    .green{{background:#28a745}}
+    .blue{{background:#007bff}}
+    .orange{{background:#ff6600}}
+    .dark{{background:#333}}
     </style>
     </head>
-    <body>{content}</body></html>
+    <body>{content}</body>
+    </html>
     """
 
 def gen_code():
@@ -59,8 +57,10 @@ def home():
     return ui("""
     <div class='box'>
     <h2>🔥 PHOENIX COMPUTER EDUCATION</h2>
+
     <a href='/join'><button class='green'>🎓 Admission</button></a>
-    <a href='/login'><button class='blue'>📱 Login</button></a>
+    <a href='/login'><button class='blue'>📱 Student Login</button></a>
+    <a href='/admin-login'><button class='dark'>🔐 Admin Login</button></a>
     <a href='/leaderboard'><button class='orange'>🏆 Leaderboard</button></a>
     </div>
     """)
@@ -95,12 +95,10 @@ def submit():
     conn=sqlite3.connect(DB)
     c=conn.cursor()
 
-    # Duplicate check
     c.execute("SELECT * FROM students WHERE mobile=?", (mobile,))
     if c.fetchone():
         return ui("<h3>❌ Already Registered</h3>")
 
-    # Referral validation
     if ref:
         c.execute("SELECT * FROM students WHERE referral_code=?", (ref,))
         if not c.fetchone():
@@ -114,11 +112,6 @@ def submit():
     if ref:
         c.execute("UPDATE students SET points=points+50 WHERE referral_code=?", (ref,))
 
-    # AI alert
-    if ref == "":
-        c.execute("INSERT INTO alerts VALUES(NULL,?,?)",
-                  ("No referral used", datetime.now().strftime("%Y-%m-%d %H:%M")))
-
     conn.commit()
     conn.close()
 
@@ -126,9 +119,16 @@ def submit():
     os.makedirs("static", exist_ok=True)
     qrcode.make(link).save(f"static/{code}.png")
 
-    return ui(f"<h3>✅ Done<br>{code}</h3><img src='/static/{code}.png'>")
+    return ui(f"""
+    <div class='box'>
+    <h3>✅ Admission Successful</h3>
+    <p>Your Code: {code}</p>
+    <img src="/static/{code}.png"><br>
+    <a href='/login'><button class='blue'>Login</button></a>
+    </div>
+    """)
 
-# ================= LOGIN =================
+# ================= STUDENT LOGIN =================
 @app.route('/login', methods=['GET','POST'])
 def login():
     if request.method=='POST':
@@ -137,33 +137,53 @@ def login():
         c=conn.cursor()
         c.execute("SELECT referral_code FROM students WHERE mobile=?", (mobile,))
         row=c.fetchone()
+        conn.close()
+
         if row:
             session['code']=row[0]
             return redirect('/dashboard')
-        return ui("❌ Not Found")
 
-    return ui("<form method='post'><input name='mobile'><button class='blue'>Login</button></form>")
+        return ui("<div class='box'><h3 style='color:red;'>❌ Student Not Found</h3></div>")
+
+    return ui("""
+    <div class='box'>
+    <h2 style='color:#ff6600;'>📱 Student Login</h2>
+    <form method='post'>
+    <input name='mobile' placeholder='Enter Mobile Number'>
+    <button class='blue'>Login</button>
+    </form>
+    </div>
+    """)
 
 # ================= DASHBOARD =================
 @app.route('/dashboard')
 def dashboard():
     code=session.get('code')
+    if not code:
+        return redirect('/login')
+
     conn=sqlite3.connect(DB)
     c=conn.cursor()
     c.execute("SELECT name,points FROM students WHERE referral_code=?", (code,))
     row=c.fetchone()
+    conn.close()
+
     link=f"{BASE_URL}/join?ref={code}"
 
     return ui(f"""
     <div class='box'>
     <h2>{row[0]}</h2>
-    <h3>{row[1]} Points</h3>
-    <input value="{link}">
-    <a href="https://wa.me/?text=Join {link}">
-    <button class='green'>Share</button></a>
-    <img src="/static/{code}.png" width="200">
-    <a href='/leaderboard'><button>Leaderboard</button></a>
-    <a href='/redeem'><button class='green'>Redeem</button></a>
+    <h3>⭐ {row[1]} Points</h3>
+
+    <input value="{link}" readonly>
+
+    <a href="https://wa.me/?text=Join Phoenix 🚀 {link}">
+    <button class='green'>📲 Share</button></a>
+
+    <img src="/static/{code}.png" width="200"><br>
+
+    <a href='/leaderboard'><button class='orange'>🏆 Leaderboard</button></a>
+    <a href='/redeem'><button class='green'>🎁 Redeem</button></a>
     </div>
     """)
 
@@ -175,12 +195,14 @@ def redeem():
     c=conn.cursor()
     c.execute("SELECT points FROM students WHERE referral_code=?", (code,))
     pts=c.fetchone()[0]
+
     if pts>=100:
         reward=(pts//100)*100
         c.execute("UPDATE students SET points=points-? WHERE referral_code=?", (reward,code))
         conn.commit()
-        return ui(f"🎉 Redeemed {reward}")
-    return ui("❌ Not enough")
+        return ui(f"<h2>🎉 Redeemed {reward}</h2>")
+
+    return ui("<h2>❌ Not enough points</h2>")
 
 # ================= LEADERBOARD =================
 @app.route('/leaderboard')
@@ -189,23 +211,72 @@ def leaderboard():
     c=conn.cursor()
     c.execute("SELECT name,points FROM students ORDER BY points DESC LIMIT 10")
     data=c.fetchall()
-    html="<div class='box'><h2>Top Referrers</h2>"
+    conn.close()
+
+    html="<div class='box'><h2>🏆 Top Referrers</h2>"
     r=1
     for d in data:
-        html+=f"<p>{r}. {d[0]} - {d[1]}</p>"; r+=1
+        html+=f"<p>{r}. {d[0]} - {d[1]} pts</p>"
+        r+=1
+
     return ui(html+"</div>")
 
-# ================= ALERTS =================
-@app.route('/alerts')
-def alerts():
+# ================= ADMIN LOGIN =================
+ADMIN_USER="admin"
+ADMIN_PASS="phoenix123"
+
+@app.route('/admin-login', methods=['GET','POST'])
+def admin_login():
+    if request.method=='POST':
+        if request.form['user']==ADMIN_USER and request.form['pass']==ADMIN_PASS:
+            session['admin']=True
+            return redirect('/admin')
+        return ui("<h3>❌ Wrong Login</h3>")
+
+    return ui("""
+    <div class='box'>
+    <h2>🔐 Admin Login</h2>
+    <form method='post'>
+    <input name='user' placeholder='Username'>
+    <input name='pass' type='password' placeholder='Password'>
+    <button class='dark'>Login</button>
+    </form>
+    </div>
+    """)
+
+# ================= ADMIN PANEL =================
+@app.route('/admin')
+def admin():
+    if not session.get('admin'):
+        return redirect('/admin-login')
+
     conn=sqlite3.connect(DB)
     c=conn.cursor()
-    c.execute("SELECT * FROM alerts")
-    data=c.fetchall()
-    html="<div class='box'><h2>AI Alerts</h2>"
-    for d in data:
-        html+=f"<p>{d[1]}</p>"
-    return ui(html+"</div>")
+
+    c.execute("SELECT COUNT(*) FROM students")
+    total=c.fetchone()[0]
+
+    c.execute("SELECT SUM(points) FROM students")
+    points=c.fetchone()[0] or 0
+
+    c.execute("SELECT name,points FROM students ORDER BY points DESC LIMIT 5")
+    top=c.fetchall()
+
+    conn.close()
+
+    html=f"""
+    <div class='box'>
+    <h2>🔥 Admin Dashboard</h2>
+    <p>Total Students: {total}</p>
+    <p>Total Points: {points}</p>
+    <h3>Top Referrers</h3>
+    """
+
+    for t in top:
+        html+=f"<p>{t[0]} - {t[1]} pts</p>"
+
+    html+="</div>"
+    return ui(html)
 
 # ================= RUN =================
 if __name__=='__main__':
