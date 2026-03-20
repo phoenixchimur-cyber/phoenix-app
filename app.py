@@ -38,7 +38,7 @@ def ui(content):
     body {{font-family:Arial;background:#f2f4f7;margin:0;text-align:center}}
     .box {{background:white;margin:15px;padding:20px;border-radius:12px}}
     input,select {{width:90%;padding:12px;margin:8px;border-radius:8px}}
-    button {{width:90%;padding:12px;margin:10px;border:none;border-radius:8px;color:white}}
+    button {{width:90%;padding:12px;margin:10px;border:none;border-radius:8px;color:white;font-size:16px}}
     .green{{background:#28a745}}
     .blue{{background:#007bff}}
     .orange{{background:#ff6600}}
@@ -65,23 +65,17 @@ def gen_code():
 def home():
     return ui("""
     <div class='box'>
-
     <h2>🔥 PHOENIX COMPUTER EDUCATION</h2>
 
     <p>
-    📍 Nutan Adarsha Colony, Near Bus Stand, Chimur<br>
-    📞 7038672255 / 9890072255
+    📍 Chimur | 📞 7038672255 / 9890072255
     </p>
 
-    <h3>💻 Courses</h3>
-    <p>MS-CIT | KLIC | CCTP</p>
-
-    <p style='color:green;'>🎯 Learn & Earn System</p>
+    <p>💻 MS-CIT | KLIC | CCTP</p>
 
     <a href='/join'><button class='green'>🎓 Admission</button></a>
     <a href='/login'><button class='blue'>📱 Student Login</button></a>
-    <a href='/admin-login'><button class='dark'>🔐 Admin Login</button></a>
-
+    <a href='/admin-login'><button class='dark'>🔐 Admin</button></a>
     </div>
     """)
 
@@ -91,13 +85,7 @@ def join():
     ref = request.args.get('ref','')
     return ui(f"""
     <div class='box'>
-
     <h2>🎓 Admission Form</h2>
-
-    <p style='color:gray;'>
-    📍 Chimur | 📞 7038672255<br>
-    💻 MS-CIT | KLIC | CCTP
-    </p>
 
     <form method='post' action='/submit'>
     <input name='name' placeholder='Full Name'>
@@ -109,11 +97,10 @@ def join():
     <option>CCTP</option>
     </select>
 
-    <input name='ref' value='{ref}' placeholder='Referral Code (Optional)'>
+    <input name='ref' value='{ref}' placeholder='Referral Code'>
 
-    <button class='orange'>Submit Admission</button>
+    <button class='orange'>Submit</button>
     </form>
-
     </div>
     """)
 
@@ -140,9 +127,45 @@ def submit():
     conn.commit()
     conn.close()
 
-    return ui("<h3>⏳ Admission Submitted<br>Wait for Admin Approval</h3>")
+    link=f"{BASE_URL}/join?ref={code}"
 
-# ================= STUDENT LOGIN =================
+    os.makedirs("static", exist_ok=True)
+    qrcode.make(link).save(f"static/{code}.png")
+
+    return ui(f"""
+    <div class='box'>
+    <h3 style='color:green;'>✅ Admission Submitted</h3>
+
+    <h2>{code}</h2>
+
+    <input id="link" value="{link}" readonly>
+
+    <button onclick="copyLink()" class='blue'>📋 Copy Link</button>
+
+    <a href="https://wa.me/?text=Join Phoenix 🚀 {link}">
+    <button class='green'>📲 Share Now</button></a>
+
+    <img src="/static/{code}.png" width="200">
+
+    <p style='color:orange;'>⏳ Points after approval</p>
+    </div>
+
+    <script>
+    function copyLink(){{
+        var copyText = document.getElementById("link");
+        copyText.select();
+        document.execCommand("copy");
+        alert("Link copied!");
+    }}
+
+    // 🔥 AUTO SHARE PRO MAX
+    setTimeout(function(){{
+        window.open("https://wa.me/?text=Join Phoenix 🚀 {link}", "_blank");
+    }}, 1500);
+    </script>
+    """)
+
+# ================= LOGIN =================
 @app.route('/login', methods=['GET','POST'])
 def login():
     if request.method=='POST':
@@ -154,8 +177,6 @@ def login():
         conn.close()
 
         if row:
-            if row[1]!="approved":
-                return ui("<h3>⏳ Wait for Approval</h3>")
             session['code']=row[0]
             return redirect('/dashboard')
 
@@ -165,7 +186,7 @@ def login():
     <div class='box'>
     <h2>📱 Student Login</h2>
     <form method='post'>
-    <input name='mobile' placeholder='Mobile Number'>
+    <input name='mobile'>
     <button class='blue'>Login</button>
     </form>
     </div>
@@ -175,23 +196,26 @@ def login():
 @app.route('/dashboard')
 def dashboard():
     code=session.get('code')
+
     conn=sqlite3.connect(DB)
     c=conn.cursor()
-    c.execute("SELECT name,points FROM students WHERE referral_code=?", (code,))
+    c.execute("SELECT name,points,status FROM students WHERE referral_code=?", (code,))
     row=c.fetchone()
     conn.close()
 
     link=f"{BASE_URL}/join?ref={code}"
 
+    pts = f"⭐ {row[1]} Points" if row[2]=="approved" else "⏳ Points after approval"
+
     return ui(f"""
     <div class='box'>
     <h2>{row[0]}</h2>
-    <h3>⭐ {row[1]} Points</h3>
+    <h3>{pts}</h3>
 
-    <input value="{link}" readonly>
+    <input value="{link}">
 
     <a href="https://wa.me/?text=Join Phoenix 🚀 {link}">
-    <button class='green'>📲 Share</button></a>
+    <button class='green'>Share</button></a>
 
     <img src="/static/{code}.png" width="200">
     </div>
@@ -206,7 +230,7 @@ def admin_login():
             return redirect('/admin')
     return ui("""
     <div class='box'>
-    <h2>🔐 Admin Login</h2>
+    <h2>Admin Login</h2>
     <form method='post'>
     <input name='user'>
     <input name='pass' type='password'>
@@ -244,7 +268,7 @@ def reject(id):
     conn.close()
     return redirect('/admin')
 
-# ================= ADMIN PANEL =================
+# ================= ADMIN =================
 @app.route('/admin')
 def admin():
     if not session.get('admin'):
@@ -256,7 +280,7 @@ def admin():
     data=c.fetchall()
     conn.close()
 
-    html="<div class='box'><h2>🔥 Admin Panel</h2>"
+    html="<div class='box'><h2>Admin Panel</h2>"
 
     for d in data:
         html+=f"<p>{d[1]} - {d[2]} ({d[3]})"
