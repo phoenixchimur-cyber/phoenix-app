@@ -18,8 +18,7 @@ def init_db():
         course TEXT,
         referral_code TEXT,
         referred_by TEXT,
-        points INTEGER DEFAULT 0,
-        status TEXT DEFAULT 'pending'
+        points INTEGER DEFAULT 0
     )''')
 
     conn.commit()
@@ -35,25 +34,17 @@ def ui(content):
     <head>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-    body {{font-family:Arial;background:#f2f4f7;margin:0;text-align:center}}
-    .box {{background:white;margin:15px;padding:20px;border-radius:12px}}
+    body {{font-family:Arial;background:#f2f4f7;margin:0}}
+    .box {{background:white;margin:15px;padding:20px;border-radius:12px;text-align:center}}
     input,select {{width:90%;padding:12px;margin:8px;border-radius:8px}}
-    button {{width:90%;padding:12px;margin:10px;border:none;border-radius:8px;color:white}}
+    button {{width:90%;padding:12px;margin:10px;border:none;border-radius:8px;color:white;font-size:16px}}
     .green{{background:#28a745}}
     .blue{{background:#007bff}}
     .orange{{background:#ff6600}}
-    .red{{background:#dc3545}}
     .dark{{background:#333}}
-    img.logo {{width:120px;margin-top:10px}}
     </style>
     </head>
-    <body>
-
-    <img src="/static/logo.jpg" class="logo">
-
-    {content}
-
-    </body>
+    <body>{content}</body>
     </html>
     """
 
@@ -65,23 +56,12 @@ def gen_code():
 def home():
     return ui("""
     <div class='box'>
-
     <h2>🔥 PHOENIX COMPUTER EDUCATION</h2>
-
-    <p>
-    📍 Nutan Adarsha Colony, Near Bus Stand, Chimur<br>
-    📞 7038672255 / 9890072255
-    </p>
-
-    <h3>💻 Courses</h3>
-    <p>MS-CIT | KLIC | CCTP</p>
-
-    <p style='color:green;'>🎯 Learn & Earn System</p>
 
     <a href='/join'><button class='green'>🎓 Admission</button></a>
     <a href='/login'><button class='blue'>📱 Student Login</button></a>
     <a href='/admin-login'><button class='dark'>🔐 Admin Login</button></a>
-
+    <a href='/leaderboard'><button class='orange'>🏆 Leaderboard</button></a>
     </div>
     """)
 
@@ -91,29 +71,16 @@ def join():
     ref = request.args.get('ref','')
     return ui(f"""
     <div class='box'>
-
-    <h2>🎓 Admission Form</h2>
-
-    <p style='color:gray;'>
-    📍 Chimur | 📞 7038672255<br>
-    💻 MS-CIT | KLIC | CCTP
-    </p>
-
+    <h2>Admission Form</h2>
     <form method='post' action='/submit'>
     <input name='name' placeholder='Full Name'>
-    <input name='mobile' placeholder='Mobile Number'>
-
+    <input name='mobile' placeholder='Mobile'>
     <select name='course'>
-    <option>MS-CIT</option>
-    <option>KLIC</option>
-    <option>CCTP</option>
+    <option>MS-CIT</option><option>KLIC</option><option>CCTP</option>
     </select>
-
     <input name='ref' value='{ref}' placeholder='Referral Code (Optional)'>
-
-    <button class='orange'>Submit Admission</button>
+    <button class='orange'>Submit</button>
     </form>
-
     </div>
     """)
 
@@ -132,15 +99,34 @@ def submit():
     if c.fetchone():
         return ui("<h3>❌ Already Registered</h3>")
 
+    if ref:
+        c.execute("SELECT * FROM students WHERE referral_code=?", (ref,))
+        if not c.fetchone():
+            return ui("<h3>❌ Invalid Referral Code</h3>")
+
     code=gen_code()
 
-    c.execute("INSERT INTO students VALUES(NULL,?,?,?,?,?,0,'pending')",
+    c.execute("INSERT INTO students VALUES(NULL,?,?,?,?,?,0)",
               (name,mobile,course,code,ref))
+
+    if ref:
+        c.execute("UPDATE students SET points=points+50 WHERE referral_code=?", (ref,))
 
     conn.commit()
     conn.close()
 
-    return ui("<h3>⏳ Admission Submitted<br>Wait for Admin Approval</h3>")
+    link=f"{BASE_URL}/join?ref={code}"
+    os.makedirs("static", exist_ok=True)
+    qrcode.make(link).save(f"static/{code}.png")
+
+    return ui(f"""
+    <div class='box'>
+    <h3>✅ Admission Successful</h3>
+    <p>Your Code: {code}</p>
+    <img src="/static/{code}.png"><br>
+    <a href='/login'><button class='blue'>Login</button></a>
+    </div>
+    """)
 
 # ================= STUDENT LOGIN =================
 @app.route('/login', methods=['GET','POST'])
@@ -149,23 +135,21 @@ def login():
         mobile=request.form['mobile']
         conn=sqlite3.connect(DB)
         c=conn.cursor()
-        c.execute("SELECT referral_code,status FROM students WHERE mobile=?", (mobile,))
+        c.execute("SELECT referral_code FROM students WHERE mobile=?", (mobile,))
         row=c.fetchone()
         conn.close()
 
         if row:
-            if row[1]!="approved":
-                return ui("<h3>⏳ Wait for Approval</h3>")
             session['code']=row[0]
             return redirect('/dashboard')
 
-        return ui("<h3>❌ Not Found</h3>")
+        return ui("<div class='box'><h3 style='color:red;'>❌ Student Not Found</h3></div>")
 
     return ui("""
     <div class='box'>
-    <h2>📱 Student Login</h2>
+    <h2 style='color:#ff6600;'>📱 Student Login</h2>
     <form method='post'>
-    <input name='mobile' placeholder='Mobile Number'>
+    <input name='mobile' placeholder='Enter Mobile Number'>
     <button class='blue'>Login</button>
     </form>
     </div>
@@ -175,6 +159,9 @@ def login():
 @app.route('/dashboard')
 def dashboard():
     code=session.get('code')
+    if not code:
+        return redirect('/login')
+
     conn=sqlite3.connect(DB)
     c=conn.cursor()
     c.execute("SELECT name,points FROM students WHERE referral_code=?", (code,))
@@ -193,56 +180,69 @@ def dashboard():
     <a href="https://wa.me/?text=Join Phoenix 🚀 {link}">
     <button class='green'>📲 Share</button></a>
 
-    <img src="/static/{code}.png" width="200">
+    <img src="/static/{code}.png" width="200"><br>
+
+    <a href='/leaderboard'><button class='orange'>🏆 Leaderboard</button></a>
+    <a href='/redeem'><button class='green'>🎁 Redeem</button></a>
     </div>
     """)
 
+# ================= REDEEM =================
+@app.route('/redeem')
+def redeem():
+    code=session.get('code')
+    conn=sqlite3.connect(DB)
+    c=conn.cursor()
+    c.execute("SELECT points FROM students WHERE referral_code=?", (code,))
+    pts=c.fetchone()[0]
+
+    if pts>=100:
+        reward=(pts//100)*100
+        c.execute("UPDATE students SET points=points-? WHERE referral_code=?", (reward,code))
+        conn.commit()
+        return ui(f"<h2>🎉 Redeemed {reward}</h2>")
+
+    return ui("<h2>❌ Not enough points</h2>")
+
+# ================= LEADERBOARD =================
+@app.route('/leaderboard')
+def leaderboard():
+    conn=sqlite3.connect(DB)
+    c=conn.cursor()
+    c.execute("SELECT name,points FROM students ORDER BY points DESC LIMIT 10")
+    data=c.fetchall()
+    conn.close()
+
+    html="<div class='box'><h2>🏆 Top Referrers</h2>"
+    r=1
+    for d in data:
+        html+=f"<p>{r}. {d[0]} - {d[1]} pts</p>"
+        r+=1
+
+    return ui(html+"</div>")
+
 # ================= ADMIN LOGIN =================
+ADMIN_USER="admin"
+ADMIN_PASS="phoenix123"
+
 @app.route('/admin-login', methods=['GET','POST'])
 def admin_login():
     if request.method=='POST':
-        if request.form['user']=="admin" and request.form['pass']=="phoenix123":
+        if request.form['user']==ADMIN_USER and request.form['pass']==ADMIN_PASS:
             session['admin']=True
             return redirect('/admin')
+        return ui("<h3>❌ Wrong Login</h3>")
+
     return ui("""
     <div class='box'>
     <h2>🔐 Admin Login</h2>
     <form method='post'>
-    <input name='user'>
-    <input name='pass' type='password'>
+    <input name='user' placeholder='Username'>
+    <input name='pass' type='password' placeholder='Password'>
     <button class='dark'>Login</button>
     </form>
     </div>
     """)
-
-# ================= APPROVE =================
-@app.route('/approve/<int:id>')
-def approve(id):
-    conn=sqlite3.connect(DB)
-    c=conn.cursor()
-
-    c.execute("SELECT referred_by FROM students WHERE id=?", (id,))
-    ref=c.fetchone()[0]
-
-    c.execute("UPDATE students SET status='approved' WHERE id=?", (id,))
-
-    if ref:
-        c.execute("UPDATE students SET points=points+50 WHERE referral_code=?", (ref,))
-
-    conn.commit()
-    conn.close()
-
-    return redirect('/admin')
-
-# ================= REJECT =================
-@app.route('/reject/<int:id>')
-def reject(id):
-    conn=sqlite3.connect(DB)
-    c=conn.cursor()
-    c.execute("DELETE FROM students WHERE id=?", (id,))
-    conn.commit()
-    conn.close()
-    return redirect('/admin')
 
 # ================= ADMIN PANEL =================
 @app.route('/admin')
@@ -252,22 +252,31 @@ def admin():
 
     conn=sqlite3.connect(DB)
     c=conn.cursor()
-    c.execute("SELECT id,name,mobile,status FROM students")
-    data=c.fetchall()
+
+    c.execute("SELECT COUNT(*) FROM students")
+    total=c.fetchone()[0]
+
+    c.execute("SELECT SUM(points) FROM students")
+    points=c.fetchone()[0] or 0
+
+    c.execute("SELECT name,points FROM students ORDER BY points DESC LIMIT 5")
+    top=c.fetchall()
+
     conn.close()
 
-    html="<div class='box'><h2>🔥 Admin Panel</h2>"
+    html=f"""
+    <div class='box'>
+    <h2>🔥 Admin Dashboard</h2>
+    <p>Total Students: {total}</p>
+    <p>Total Points: {points}</p>
+    <h3>Top Referrers</h3>
+    """
 
-    for d in data:
-        html+=f"<p>{d[1]} - {d[2]} ({d[3]})"
+    for t in top:
+        html+=f"<p>{t[0]} - {t[1]} pts</p>"
 
-        if d[3]=='pending':
-            html+=f"<br><a href='/approve/{d[0]}'><button class='green'>Approve</button></a>"
-            html+=f"<a href='/reject/{d[0]}'><button class='red'>Reject</button></a>"
-
-        html+="</p><hr>"
-
-    return ui(html+"</div>")
+    html+="</div>"
+    return ui(html)
 
 # ================= RUN =================
 if __name__=='__main__':
